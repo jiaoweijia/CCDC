@@ -65,6 +65,7 @@ class MainWindow(QMainWindow):
         self.setup_modules()
         self.load_config()
         self.connect_signals_slots()
+        self.trajectory_plot.set_control_law(self.ui.ControlLaw_Sel.currentText())
         self.start_udp_server()
 
         #主线程消息zeromq
@@ -181,6 +182,9 @@ class MainWindow(QMainWindow):
                 # 更新轨迹绘制组件参数（UI控件已经通过反射机制加载完成）
                 if hasattr(self, 'trajectory_plot'):
                     self.update_trajectory_params()
+                    if config.has_section("NMPC_TERMINAL"):
+                        self.trajectory_plot.restore_terminal_controls(dict(config["NMPC_TERMINAL"]))
+                    self.trajectory_plot.set_control_law(self.ui.ControlLaw_Sel.currentText())
                 
                 # 加载窗口配置
                 if 'WINDOW_CONFIG' in config:
@@ -224,6 +228,9 @@ class MainWindow(QMainWindow):
         try:
             config = configparser.ConfigParser()
             
+            if hasattr(self, "trajectory_plot"):
+                config["NMPC_TERMINAL"] = self.trajectory_plot.terminal_controls_config()
+
             # 获取所有UI控件
             ui_widgets = vars(self.ui)
             
@@ -395,6 +402,7 @@ class MainWindow(QMainWindow):
         
         # 连接TrajectoryPlotWidget的usv_state_updated信号到update_usv_state方法
         self.trajectory_plot.usv_state_updated.connect(self.update_usv_state)
+        self.trajectory_plot.terminal_control_failed.connect(self._on_terminal_control_failed)
         # 将轨迹绘制组件添加到graphicsView
         if hasattr(self.ui, 'graphicsView'):
             layout = self.ui.graphicsView.layout()
@@ -1116,6 +1124,11 @@ class MainWindow(QMainWindow):
                 self.ui.StartExpButton.setStyleSheet("background-color: rgb(255, 0, 0);")
                 self.ui.USVsConnectState.appendPlainText("开始实验")
     
+    def _on_terminal_control_failed(self, reason):
+        self.ui.USVsConnectState.appendPlainText('NMPC停止：'+reason)
+        if not self.ui.rb_Simulated_ship.isChecked():
+            self.send_emergency_stop_command()
+
     def reset_trajectory_drawing(self):
         """重置轨迹（连接ResetCurveButton）"""
         if hasattr(self, 'trajectory_plot'):

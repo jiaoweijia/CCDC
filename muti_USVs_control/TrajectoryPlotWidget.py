@@ -12,9 +12,12 @@ from CommandManager import CommandManager
 from MotionCapture import MotionCapture
 from CoveragePathPlanner import CoveragePathPlanner
 from ObstacleAvoidance import CircleObstacle, RectangleObstacle
-class TrajectoryPlotWidget(QWidget):
+from SoftTerminalPanel import SoftTerminalPanelMixin
+
+class TrajectoryPlotWidget(SoftTerminalPanelMixin, QWidget):
     """参数方程轨迹绘制组件"""
     
+    terminal_control_failed = Signal(str)
     trajectory_started = Signal(str)
     trajectory_reset = Signal(str)
     params_changed = Signal()
@@ -154,6 +157,7 @@ class TrajectoryPlotWidget(QWidget):
         
         # 初始化绘图相关组件
         self.setup_plot()
+        self._setup_soft_terminal_controls()
         
         # 安装事件过滤器以捕获鼠标事件
         self.plot_widget.viewport().installEventFilter(self)
@@ -412,6 +416,16 @@ class TrajectoryPlotWidget(QWidget):
         return angle
     #定时心跳 + 模式分发 刷新左上角时钟
     def update_animation(self):
+        if not self._terminal_is_active():
+            return self._update_animation_frame()
+        try:
+            self._update_animation_frame()
+        except (RuntimeError, ValueError) as exc:
+            self.stop_drawing()
+            self.terminal_status_label.setText('NMPC运行停止：'+str(exc))
+            self.terminal_control_failed.emit(str(exc))
+
+    def _update_animation_frame(self):
         # 更新时间显示
         if self.time_display is not None:
             view_range = self.plot_widget.viewRange()
@@ -470,7 +484,7 @@ class TrajectoryPlotWidget(QWidget):
             if self.dynamics_enabled is False: #实船走下面
                 # 获取USV当前状态
                 current_state = self.motion_capture.get_usv_state(usv_id)   
-                result = self.usv_manager.control_usv(usv_id, target_point, next_target, current_state, obstacles=self.get_obstacles())
+                result = self._control_with_terminal(usv_id, target_point, next_target, current_state, obstacles=self.get_obstacles())
                 if result is not None:
                     pwml = result['pwml']
                     pwmr = result['pwmr']
@@ -490,7 +504,7 @@ class TrajectoryPlotWidget(QWidget):
                         self.command_manager.send_control_command(usv_id, pwml, pwmr)
             else:
                 # 动力学仿真模式
-                result = self.usv_manager.control_usv(usv_id, target_point, next_target, obstacles=self.get_obstacles())
+                result = self._control_with_terminal(usv_id, target_point, next_target, obstacles=self.get_obstacles())
             
             if result is not None:
                 dynamic_x = result.get('x', 0)
@@ -559,7 +573,7 @@ class TrajectoryPlotWidget(QWidget):
             if self.dynamics_enabled is False:
                 # 获取USV当前状态
                 current_state = self.motion_capture.get_usv_state(usv_id)                        
-                result = self.usv_manager.control_usv(usv_id, target_point, next_target_point, current_state, obstacles=self.get_obstacles())                    
+                result = self._control_with_terminal(usv_id, target_point, next_target_point, current_state, obstacles=self.get_obstacles())
                 if result is not None:
                     pwml = result['pwml']
                     pwmr = result['pwmr']
@@ -579,7 +593,7 @@ class TrajectoryPlotWidget(QWidget):
             else:
                 # 动力学仿真模式
                 # 传递当前目标点和下一个目标点
-                result = self.usv_manager.control_usv(usv_id, target_point, next_target_point, obstacles=self.get_obstacles())
+                result = self._control_with_terminal(usv_id, target_point, next_target_point, obstacles=self.get_obstacles())
             self.current_waypoint_indices[usv_id] += 1
             # 只有当control_usv返回有效结果时才进行解包
             if result is not None:
@@ -708,7 +722,7 @@ class TrajectoryPlotWidget(QWidget):
                 if self.dynamics_enabled is False:
                     usv_state = self.motion_capture.get_usv_state(usv_id)
                     # 直接传递参考点和下一个参考点，避免重复计算
-                    result = self.usv_manager.control_usv(usv_id, usv_reference_point, usv_next_reference_point, usv_state, obstacles=self.get_obstacles())
+                    result = self._control_with_terminal(usv_id, usv_reference_point, usv_next_reference_point, usv_state, obstacles=self.get_obstacles())
                     pwml = result['pwml']
                     pwmr = result['pwmr']                
                     if pwml>0:
@@ -723,7 +737,7 @@ class TrajectoryPlotWidget(QWidget):
                     self.command_manager.send_control_command(usv_id, pwml, pwmr)#后版du的Ts是负数
                 else:
                     # 直接传递参考点和下一个参考点，避免重复计算
-                    result = self.usv_manager.control_usv(usv_id, usv_reference_point, usv_next_reference_point, obstacles=self.get_obstacles())
+                    result = self._control_with_terminal(usv_id, usv_reference_point, usv_next_reference_point, obstacles=self.get_obstacles())
                     
             # 只有当control_usv返回有效结果时才进行解包
             if result is not None:
@@ -1031,6 +1045,9 @@ class TrajectoryPlotWidget(QWidget):
             for usv_id in self.usv_manager.get_registered_usvs():
                 self.usv_manager.set_control_law(usv_id, control_law)
     #实物船/动力学仿真开关
+        self._terminal_selected_control = control_law
+        self._apply_soft_terminal_controls()
+
     def enable_dynamics(self, enabled):
         """
         启用或禁用动力学仿真

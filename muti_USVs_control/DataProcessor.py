@@ -117,6 +117,10 @@ class DataProcessor(QObject):
             
             # 定义固定表头顺序（不含usv_id，因为每个sheet是独立USV）
             fixed_headers = ['DateTime', 'x', 'y', 'rx', 'ry', 'Heading', 'PWM_L', 'PWM_R', 'u', 'v']
+            terminal_fields = ['requested_mode', 'curvature', 'curvature_switch', 'curvature_enter', 'curvature_exit', 'curvature_fallback', 'switch_reason', 'mode', 'terminal_mode', 'enabled', 'sigma', 'rate_target', 'check_steps', 'penalty', 'energy_current', 'energy_target', 'energy_predicted', 'slack', 'slack_optimized', 'target_met', 'predicted_drop', 'cost', 'terminal_cost', 'cost_scale', 'state_source', 'reference_source', 'soft_constraint_checked', 'nominal_plan_checked', 'solver_success', 'solver_status', 'reason', 'solve_time_ms', 'position_priority', 'position_current_m', 'position_target_m', 'position_predicted_m', 'position_budget_m', 'position_slack_m', 'position_target_met']
+            has_terminal = any(entry['data'].get('terminal') for records in self.data_buffer.values() for entry in records)
+            if has_terminal:
+                fixed_headers += ['terminal_'+key for key in terminal_fields]
             
             # 创建新的工作簿
             wb = Workbook()
@@ -159,6 +163,9 @@ class DataProcessor(QObject):
                         data.get('v', '')
                     ]
                     
+                    if has_terminal:
+                        diagnostic = data.get('terminal') or {}
+                        row_data.extend(diagnostic.get(key, '') for key in terminal_fields)
                     ws.append(row_data)
                 
                 # 调整列宽

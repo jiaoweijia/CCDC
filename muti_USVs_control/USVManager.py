@@ -111,7 +111,7 @@ class USVManager(QObject):
             control_system.reset()
             
     #把"当前参考点、下一参考点、实测状态、障碍物列表"原样转发给对应船
-    def control_usv(self, usv_id, reference_point=None, next_reference_point=None, usv_state=None, obstacles=None):
+    def control_usv(self, usv_id, reference_point=None, next_reference_point=None, usv_state=None, obstacles=None, reference_preview=None, reference_curvature=None):
         """
         执行USV的控制循环
 
@@ -126,7 +126,7 @@ class USVManager(QObject):
             tuple: 更新后的位置坐标 (x, y)，如果控制失败则返回None
         """
         if usv_id in self.control_systems:
-            return self.control_systems[usv_id].control(usv_id, reference_point, next_reference_point, usv_state, obstacles)
+            return self.control_systems[usv_id].control(usv_id, reference_point, next_reference_point, usv_state, obstacles, reference_preview, reference_curvature)
         return None
     
     # 更新USV控制系统的参数

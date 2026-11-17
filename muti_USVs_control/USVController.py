@@ -3,6 +3,7 @@ import casadi as ca
 import math
 import re
 from ObstacleAvoidance import ObstacleAvoidance
+from SoftTerminalMPC import SoftTerminalEngine, DEFAULTS, validate_settings, curvature_from_points
 def _wrap(a):
     return (a + math.pi) % (2 * math.pi) - math.pi
 
@@ -593,8 +594,21 @@ class MPCController:
         self._prev_uvr = None
         self._prev_derivs = np.zeros(3)
         self._prev_ctrl = None
-        self.terminal_diagnostics = {'mode': 'legacy', 'nominal_plan_checked': False,
-                                     'certificate_scope': 'original heuristic; no certificate'}
+        self.terminal_settings = dict(DEFAULTS)
+        self.terminal_diagnostics = {'mode': 'waiting', 'nominal_plan_checked': False}
+        self._soft_engine = None
+        self._curvature_legacy = False
+
+    def configure_terminal(self, **settings):
+        cfg = validate_settings(dict(self.terminal_settings, **settings), self.N)
+        if cfg != self.terminal_settings:
+            self.terminal_settings = cfg
+            self._curvature_legacy = False
+            if self._soft_engine is not None:
+                self._soft_engine.reset()
+
+    def copy_terminal_settings_from(self, other):
+        self.configure_terminal(**other.terminal_settings)
 
     def reset(self):
         """重置NMPC内部状态（滚动优化初值与ARX滞后项自递归缓存）"""
@@ -602,6 +616,10 @@ class MPCController:
         self._prev_uvr = None
         self._prev_derivs = np.zeros(3)
         self._prev_ctrl = None
+        self.terminal_diagnostics = {'mode': 'waiting', 'nominal_plan_checked': False}
+        self._curvature_legacy = False
+        if self._soft_engine is not None:
+            self._soft_engine.reset()
 
     def _arx_step(self, uvr_prev, d_prev, ctrl):
         """ARX 单步递推：D_k = ARX(上拍实测状态, 上拍实际下发推力, 上拍滞后项)。
@@ -620,7 +638,7 @@ class MPCController:
              + c8 * du_p + c9 * dv_p + c10 * dr_p
         return du, dv, dr
 
-    def update(self, current_state, desired_state, dt):
+    def update(self, current_state, desired_state, dt, reference_preview=None, reference_curvature=None):
         """
         更新MPC控制器
 
@@ -632,6 +650,46 @@ class MPCController:
         返回:
             (Tp, Ts): 左右推进器输出
         """
+        cfg = self.terminal_settings
+        curvature = reference_curvature
+        if reference_preview is not None:
+            curvature = reference_preview.get('curvature')
+            if curvature is None:
+                curvature = curvature_from_points(np.asarray(reference_preview['X'])[:3, 3:5])
+        if curvature is not None:
+            curvature = abs(float(curvature))
+            if not np.isfinite(curvature):
+                raise ValueError('Reference curvature must be finite')
+        previous = self._curvature_legacy
+        if cfg['mode'] != 'adaptive' or not cfg['curvature_switch']:
+            self._curvature_legacy = False
+        elif curvature is None:
+            # A missing/stationary reference must not retain a stale turn latch.
+            self._curvature_legacy = False
+        elif self._curvature_legacy:
+            if curvature <= cfg['curvature_exit']:
+                self._curvature_legacy = False
+        elif curvature >= cfg['curvature_enter']:
+            self._curvature_legacy = True
+        if previous != self._curvature_legacy and self._soft_engine is not None:
+            # Do not compare straight-section energy with a different turn reference.
+            self._soft_engine.reset()
+        if cfg['mode'] != 'legacy' and not self._curvature_legacy:
+            if self._soft_engine is None:
+                self._soft_engine = SoftTerminalEngine(self)
+            output = self._soft_engine.update(current_state, desired_state, dt, reference_preview)
+        else:
+            output = self._update_legacy(current_state, desired_state, dt)
+        self.terminal_diagnostics.update(
+            requested_mode=cfg['mode'], curvature=curvature,
+            curvature_switch=cfg['curvature_switch'],
+            curvature_enter=cfg['curvature_enter'], curvature_exit=cfg['curvature_exit'],
+            curvature_fallback=self._curvature_legacy,
+            switch_reason='curvature' if self._curvature_legacy else 'selected_mode')
+        return output
+
+    def _update_legacy(self, current_state, desired_state, dt):
+        """Original heuristic path, also used while the curvature latch is active."""
         self.terminal_diagnostics = {'mode': 'legacy', 'nominal_plan_checked': False,
                                      'certificate_scope': 'original heuristic; no certificate'}
         current_state = np.asarray(current_state, dtype=float).flatten()
@@ -1316,6 +1374,8 @@ class USVControlSystem:
             value = getattr(source_mpc, attribute)
             setattr(target_mpc, attribute, value.copy() if isinstance(value, list) else value)
 
+        target_mpc.copy_terminal_settings_from(source_mpc)
+
         clone.backstepping.__dict__.update(self.backstepping.__dict__)
         for attribute in (
             'influence_distance', 'safety_margin', 'repulsive_gain',
@@ -1351,6 +1411,8 @@ class USVControlSystem:
         if control_name in self.control_laws:
             if control_name == 'ADRC' and self.current_control != 'ADRC':
                 self.adrc.reset()
+            if control_name != self.current_control and 'NMPC' in (control_name, self.current_control):
+                self.mpc.reset()
             self.current_control = control_name
             return True
         return False
@@ -1373,7 +1435,7 @@ class USVControlSystem:
         if 'min_speed_ratio' in params:
             oa.min_speed_ratio = params['min_speed_ratio']
     #一帧完整控制循环
-    def control(self, usv_id, reference_point=None, next_reference_point=None, usv_state=None, obstacles=None):
+    def control(self, usv_id, reference_point=None, next_reference_point=None, usv_state=None, obstacles=None, reference_preview=None, reference_curvature=None):
         """
         执行控制循环
 
@@ -1442,7 +1504,9 @@ class USVControlSystem:
                            self.desired_heading]
             
             # 使用NMPC控制器计算控制输出
-            self.Tp, self.Ts = self.mpc.update(current_state, desired_state, self.dynamics.T)
+            self.Tp, self.Ts = self.mpc.update(current_state, desired_state, self.dynamics.T,
+                                                reference_preview=reference_preview if not obstacles else None,
+                                                reference_curvature=reference_curvature)
         elif self.current_control == 'Backstepping':
             # 构建期望状态
             desired_state = [self.desired_speed, 0, 0, 
