@@ -1,0 +1,29 @@
+# Visual Studio
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+*.suo
+*.user
+*.opensdf
+*.sdf
+*.pyc
+
+# Qt build directories
+build-*/
+
+# vscode
+.vscode/
+.pio/
+.__pycache__/
+# Local environments and generated files
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.idea/
+.trae/
+compile_commands.json
+.env
+.env.*

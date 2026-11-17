@@ -1,0 +1,9 @@
+﻿metric,status
+leader/along/cross track,不可计算：缺少rx/ry参考点列
+desired surge speed tracking,不可计算：缺少desired_speed列
+heading tracking,不可计算：缺少desired_heading列
+solver timing,不可计算：日志未记录solver_time_ms，不能用本脚本运行时间代替
+solver failure rate,不可计算：日志未记录solver_success
+parameter repeatability,不可计算：需要多次独立辨识的系数，不是一组固定模型
+true energy use,不可计算：需要电压/电流记录，PWM只作为指令代理
+AIC/BIC,未计算：需要一致训练似然和有效自由参数定义，不能直接由测试集RMSE代替
