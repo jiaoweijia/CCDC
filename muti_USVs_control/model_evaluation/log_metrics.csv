@@ -1,0 +1,15 @@
+﻿group,metric,value,unit
+PWM,left_mean_abs_delta,5.795560528857458,PWM/sample
+PWM,left_total_variation_per_s,52.95337692024831,PWM/s
+PWM,left_offset_rms_proxy,95.33458636962602,PWM (not energy)
+PWM,left_saturation_fraction,0.0,fraction_of_logged_samples
+PWM,right_mean_abs_delta,8.647268753055915,PWM/sample
+PWM,right_total_variation_per_s,79.00911039255882,PWM/s
+PWM,right_offset_rms_proxy,100.01098724674353,PWM (not energy)
+PWM,right_saturation_fraction,0.0,fraction_of_logged_samples
+constraints,u_violation_fraction,0.0,fraction
+constraints,u_max_violation,0.0,m/s
+constraints,v_violation_fraction,0.0,fraction
+constraints,v_max_violation,0.0,m/s
+constraints,r_violation_fraction,0.0,fraction
+constraints,r_max_violation,0.0,rad/s

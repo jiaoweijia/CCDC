@@ -1,0 +1,4 @@
+﻿model,channel,status,lags,ljung_box_Q,ljung_box_p,max_abs_acf,approximate_95_band,acf_outside_band_fraction,max_abs_input_correlation
+example_15_REPLACE_ME,u,approximate_diagnostic,20,2795.5712690067053,0.0,0.8607857373147509,0.07717492463389945,1.0,0.6479488095228877
+example_15_REPLACE_ME,v,approximate_diagnostic,20,4022.0686667299105,0.0,0.9675382431061782,0.07717492463389945,0.85,0.9206937350571154
+example_15_REPLACE_ME,r,approximate_diagnostic,20,2835.963829092214,0.0,0.9440468291304607,0.07717492463389945,0.9,0.8550429231170302

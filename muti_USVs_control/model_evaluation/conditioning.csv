@@ -1,0 +1,4 @@
+﻿model,channel,nonzero_additive_terms,normalized_rank,normalized_condition_number
+example_15_REPLACE_ME,du,5,5,16.8271887086665
+example_15_REPLACE_ME,dv,4,4,16.83073267607875
+example_15_REPLACE_ME,dr,6,6,27.79285052445814

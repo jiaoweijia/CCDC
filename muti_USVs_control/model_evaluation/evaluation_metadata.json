@@ -1,0 +1,29 @@
+{
+  "raw_valid_rows": 600,
+  "discarded_rows": 0,
+  "resampled_rows": 656,
+  "duration_s": 65.55843949317932,
+  "raw_dt_median_s": 0.10933113098145064,
+  "raw_dt_std_s": 0.004406424796234366,
+  "dt_s": 0.1,
+  "filter": "savgol",
+  "state_source": "position",
+  "models": [
+    {
+      "name": "example_15_REPLACE_ME",
+      "parameter_count": 15,
+      "input_delay_steps": 0,
+      "integration": "rk4"
+    }
+  ],
+  "warnings": [],
+  "horizons": [
+    1,
+    10,
+    20,
+    100
+  ],
+  "window_stride": 1,
+  "filter_edge": 5,
+  "caution": "这是固定模型在所选记录上的评估，不会自动分训练测试集。请使用未参与辨识/调参的独立实验。闭环日志指标属于采集时的控制器，不是候选模型的反事实闭环结果。"
+}
