@@ -61,7 +61,7 @@ class RestoreTests(unittest.TestCase):
  def test_actual_H_slack_and_independent_model(self):
   c,preview,x,target=case(rate=.2,steps=3)
   command=c.update(x,target,.1,preview);d=c.terminal_diagnostics;engine=c._soft_engine
-  self.assertTrue(engine.plan['valid']);self.assertTrue(d['position_priority'])
+  self.assertTrue(engine.plan['valid']);self.assertFalse(d['position_priority'])
   self.assertEqual(d['check_steps'],3);self.assertAlmostEqual(d['energy_target'],.8*d['energy_current'])
   state=np.r_[x,np.zeros(3)]
   states=[state.copy()]
@@ -70,11 +70,12 @@ class RestoreTests(unittest.TestCase):
    a=state[5];v=state[:3];dp=[np.cos(a)*v[0]-np.sin(a)*v[1],np.sin(a)*v[0]+np.cos(a)*v[1]]
    state=np.r_[v+.1*dn,state[3:5]+.1*np.array(dp),a+.1*v[2],dn]
    np.testing.assert_allclose(state,expected,atol=1e-12);states.append(state.copy())
-  e=error_numeric(states[3],preview['X'][3]);V=float(np.sum(e*e/np.array(c.terminal_settings['state_scales'])**2))
+  reference=preview['X'][3].copy();reference[0]=target[0];reference[5]=target[5]
+  e=error_numeric(states[3],reference);V=float(np.sum(e*e*np.array([.1,.1,.1,1.,1.,.1,0.,0.,0.])/np.array(c.terminal_settings['state_scales'])**2))
   self.assertAlmostEqual(V,d['energy_predicted'],places=10)
   self.assertAlmostEqual(d['slack'],max(0.,V-d['energy_target']),places=10)
   self.assertLessEqual(d['slack'],d['slack_optimized']+1e-6)
-  self.assertLessEqual(d['position_predicted_m'],d['position_budget_m']+1e-6)
+  self.assertLessEqual(d['max_motor_increment'],c.terminal_settings['motor_step']+1e-6)
   self.assertTrue(np.all(np.asarray(command)>=0));self.assertTrue(np.all(np.asarray(command)<=500))
   self.assertFalse(d['nominal_plan_checked'])
 
@@ -92,8 +93,9 @@ class RestoreTests(unittest.TestCase):
  def test_penalty_has_real_effect(self):
   results=[]
   for penalty in [1.,100.]:
-   c,preview,x,target=case(mode='fixed',penalty=penalty)
-   results.append((np.array(c.update(x,target,.1,preview)),c.terminal_diagnostics['slack']))
+   c,preview,x,target=case(mode='fixed',penalty=penalty,rate=.99)
+   c.update(x,target,.1,preview)
+   results.append((c._soft_engine.plan['U'].copy(),c.terminal_diagnostics['slack']))
   self.assertGreater(np.linalg.norm(results[0][0]-results[1][0]),.001)
   self.assertLess(results[1][1],results[0][1])
 

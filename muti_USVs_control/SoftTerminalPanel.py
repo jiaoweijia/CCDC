@@ -10,7 +10,7 @@ class SoftTerminalPanelMixin:
     def _setup_soft_terminal_controls(self):
         row = QHBoxLayout()
         self.terminal_mode_selector = QComboBox()
-        self.terminal_mode_selector.addItem('自适应终端＋软下降（位置优先）', 'adaptive')
+        self.terminal_mode_selector.addItem('自适应终端＋软下降（连续跟踪）', 'adaptive')
         self.terminal_mode_selector.addItem('固定终端权重（σ=1）', 'fixed')
         self.terminal_mode_selector.addItem('原启发式终端（对照）', 'legacy')
         row.addWidget(self.terminal_mode_selector)
@@ -21,7 +21,7 @@ class SoftTerminalPanelMixin:
         self.terminal_rate_spin = QDoubleSpinBox()
         self.terminal_rate_spin.setRange(.001, 99.); self.terminal_rate_spin.setDecimals(3)
         self.terminal_rate_spin.setSuffix(' %'); self.terminal_rate_spin.setValue(10.)
-        self.terminal_rate_spin.setToolTip('位置优先模式同时设置预测H步后位置误差平方和综合误差能量的下降目标。')
+        self.terminal_rate_spin.setToolTip('未来H步加权跟踪误差的目标下降比例；达不到时允许松弛，不硬性锁住末端位置。')
         row.addWidget(self.terminal_rate_spin); row.addWidget(QLabel('H'))
         self.terminal_steps_spin = QSpinBox(); self.terminal_steps_spin.setRange(0, 10)
         self.terminal_steps_spin.setSpecialValueText('N'); self.terminal_steps_spin.setValue(0)
@@ -53,12 +53,27 @@ class SoftTerminalPanelMixin:
         self.terminal_curvature_check.setToolTip('仅自适应模式：入弯停用软下降，出弯自动恢复；两门槛之间保持当前模式。')
         self.terminal_curvature_enter_spin.valueChanged.connect(
             lambda value: self.terminal_curvature_exit_spin.setMaximum(max(0., value-.001)))
+        row = QHBoxLayout()
+        row.addWidget(QLabel('切换渐变时间'))
+        self.terminal_transition_spin = QDoubleSpinBox()
+        self.terminal_transition_spin.setRange(.1, 5.)
+        self.terminal_transition_spin.setValue(.8)
+        self.terminal_transition_spin.setSuffix(' s')
+        row.addWidget(self.terminal_transition_spin)
+        row.addWidget(QLabel('每拍推力变化上限'))
+        self.terminal_motor_step_spin = QDoubleSpinBox()
+        self.terminal_motor_step_spin.setRange(1., 500.)
+        self.terminal_motor_step_spin.setValue(15.)
+        self.terminal_motor_step_spin.setToolTip('优化内约束每个推进器相邻两拍的变化；小值更平缓，大值响应更快。仅新增终端模式生效。')
+        row.addWidget(self.terminal_motor_step_spin)
+        self.layout.addLayout(row)
         self.terminal_status_label = QLabel('软下降：等待运行；仅预测检查，无稳定性认证')
         self.terminal_status_label.setWordWrap(True); self.layout.addWidget(self.terminal_status_label)
         self._terminal_messages = {}
         self._terminal_reference_history = {}
         for spin in (self.terminal_rate_spin, self.terminal_steps_spin, self.terminal_penalty_spin,
-                     self.terminal_curvature_enter_spin, self.terminal_curvature_exit_spin):
+                     self.terminal_curvature_enter_spin, self.terminal_curvature_exit_spin,
+                     self.terminal_transition_spin, self.terminal_motor_step_spin):
             spin.editingFinished.connect(self._apply_soft_terminal_controls)
         self.terminal_mode_selector.currentIndexChanged.connect(self._apply_soft_terminal_controls)
         self.terminal_soft_check.toggled.connect(self._apply_soft_terminal_controls)
@@ -77,7 +92,7 @@ class SoftTerminalPanelMixin:
         widgets = (self.terminal_mode_selector, self.terminal_soft_check,
                    self.terminal_rate_spin, self.terminal_steps_spin, self.terminal_penalty_spin,
                    self.terminal_curvature_check, self.terminal_curvature_enter_spin,
-                   self.terminal_curvature_exit_spin)
+                   self.terminal_curvature_exit_spin, self.terminal_transition_spin, self.terminal_motor_step_spin)
         blockers = [QSignalBlocker(widget) for widget in widgets]
         try:
             index = self.terminal_mode_selector.findData(values.get('mode', 'adaptive'))
@@ -87,6 +102,8 @@ class SoftTerminalPanelMixin:
             self.terminal_rate_spin.setValue(100*float(values.get('rate', .10)))
             self.terminal_steps_spin.setValue(int(values.get('steps', 0)))
             self.terminal_penalty_spin.setValue(float(values.get('penalty', 10.)))
+            self.terminal_transition_spin.setValue(float(values.get('transition_time', .8)))
+            self.terminal_motor_step_spin.setValue(float(values.get('motor_step', 15.)))
             self.terminal_curvature_check.setChecked(str(values.get('curvature_switch', 'True')).lower() == 'true')
             self.terminal_curvature_enter_spin.setValue(float(values.get('curvature_enter', .85)))
             self.terminal_curvature_exit_spin.setMaximum(self.terminal_curvature_enter_spin.value()-.001)
@@ -103,7 +120,9 @@ class SoftTerminalPanelMixin:
                     penalty=self.terminal_penalty_spin.value(),
                     curvature_switch=self.terminal_curvature_check.isChecked(),
                     curvature_enter=self.terminal_curvature_enter_spin.value(),
-                    curvature_exit=self.terminal_curvature_exit_spin.value())
+                    curvature_exit=self.terminal_curvature_exit_spin.value(),
+                    transition_time=self.terminal_transition_spin.value(),
+                    motor_step=self.terminal_motor_step_spin.value())
 
     def _sync_soft_terminal(self, system):
         if system is not None:
@@ -123,6 +142,8 @@ class SoftTerminalPanelMixin:
             widget.setEnabled(enabled)
         adaptive = active and self.terminal_mode_selector.currentData() == 'adaptive'
         self.terminal_curvature_check.setEnabled(adaptive)
+        self.terminal_transition_spin.setEnabled(adaptive and self.terminal_curvature_check.isChecked())
+        self.terminal_motor_step_spin.setEnabled(active and not legacy)
         for widget in (self.terminal_curvature_enter_spin, self.terminal_curvature_exit_spin):
             widget.setEnabled(adaptive and self.terminal_curvature_check.isChecked())
         try:
@@ -210,6 +231,8 @@ class SoftTerminalPanelMixin:
                                f"（目标≤{100*d['position_target_m']:.1f} cm，{position_flag}）\n"
                                f"综合V {d['energy_current']:.3g}→{d['energy_predicted']:.3g}，"
                                f"s={d['slack']:.3g}，σ={d['sigma']:.3g}；能量{flag}{fallback}{source}")
+            if 0. < d.get('legacy_blend', 0.) < 1.:
+                message += f"；终端渐变 {100*d['legacy_blend']:.0f}% 启发式"
             if d.get('curvature') is not None:
                 message += f"；κ={d['curvature']:.3f} 1/m"
             self._terminal_messages[usv_id] = message

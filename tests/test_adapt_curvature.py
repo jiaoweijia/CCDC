@@ -25,28 +25,26 @@ class CurvatureTests(unittest.TestCase):
         preview = preview_from_points(2*np.column_stack([np.cos(angles), np.sin(angles)]), .1)
         self.assertAlmostEqual(preview['curvature'], .5)
 
-    def test_hysteresis_and_original_output_in_turn(self):
+    def test_hysteresis_with_continuous_transition_and_cached_solver(self):
         c, preview, state, target = base.case()
         c.configure_terminal(curvature_switch=True)
-        old = base.ORIGINAL.MPCController(min_output=0)
-        old.Q, old.R = c.Q.copy(), c.R.copy()
-        for curvature in (.85, .8):
+        last = np.zeros(2)
+        cached = None
+        for curvature, latched in ((.85, True), (.8, True), (.7, False), (.8, False), (-.85, True)):
             preview['curvature'] = curvature
-            actual = c.update(state, target, .1, preview)
-            expected = old.update(state, target, .1)
-            np.testing.assert_allclose(actual, expected, atol=1e-8)
-            self.assertEqual(c.terminal_diagnostics['mode'], 'legacy')
-            self.assertTrue(c.terminal_diagnostics['curvature_fallback'])
-            self.assertIsNone(c._soft_engine)
-        for curvature in (.7, .8):
-            preview['curvature'] = curvature
+            actual = np.asarray(c.update(state, target, .1, preview))
+            self.assertLessEqual(np.max(abs(actual-last)), c.terminal_settings['motor_step']+1e-6)
+            self.assertEqual(c.terminal_diagnostics['curvature_fallback'], latched)
+            if cached is not None:
+                self.assertIs(c._soft_engine.solver, cached)
+            cached = c._soft_engine.solver
+            last = actual
+        for _ in range(10):
             c.update(state, target, .1, preview)
-            self.assertFalse(c.terminal_diagnostics['curvature_fallback'])
-            self.assertTrue(c.terminal_diagnostics['soft_constraint_checked'])
-        preview['curvature'] = -.85  # clockwise turns use the same absolute threshold
-        c.update(state, target, .1, preview)
-        self.assertTrue(c.terminal_diagnostics['curvature_fallback'])
+        self.assertEqual(c.terminal_diagnostics['mode'], 'legacy')
+        self.assertFalse(c.terminal_diagnostics['soft_constraint_checked'])
         c.reset()
+        self.assertIs(c._soft_engine.solver, cached)
         self.assertFalse(c._curvature_legacy)
         self.assertIsNone(c._soft_engine.previous_energy)
 
@@ -117,8 +115,8 @@ class CurvatureTests(unittest.TestCase):
                 diagnostic = system.mpc.terminal_diagnostics
                 self.assertEqual(diagnostic.get('curvature_fallback'), expected_turn, (t, system.get_state(), diagnostic, widget.terminal_status_label.text()))
                 if expected_turn:
-                    self.assertEqual(diagnostic['mode'], 'legacy')
-                    self.assertIn('出弯自动恢复', widget.terminal_status_label.text())
+                    self.assertGreater(diagnostic['legacy_blend'], 0.)
+                    self.assertLess(diagnostic['legacy_blend'], 1.)
                 else:
                     self.assertTrue(diagnostic['soft_constraint_checked'])
             base.QT.processEvents()

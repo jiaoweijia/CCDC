@@ -598,6 +598,7 @@ class MPCController:
         self.terminal_diagnostics = {'mode': 'waiting', 'nominal_plan_checked': False}
         self._soft_engine = None
         self._curvature_legacy = False
+        self._terminal_blend = 0.
 
     def configure_terminal(self, **settings):
         cfg = validate_settings(dict(self.terminal_settings, **settings), self.N)
@@ -617,6 +618,7 @@ class MPCController:
         self._prev_derivs = np.zeros(3)
         self._prev_ctrl = None
         self.terminal_diagnostics = {'mode': 'waiting', 'nominal_plan_checked': False}
+        self._terminal_blend = 0.
         self._curvature_legacy = False
         if self._soft_engine is not None:
             self._soft_engine.reset()
@@ -660,7 +662,6 @@ class MPCController:
             curvature = abs(float(curvature))
             if not np.isfinite(curvature):
                 raise ValueError('Reference curvature must be finite')
-        previous = self._curvature_legacy
         if cfg['mode'] != 'adaptive' or not cfg['curvature_switch']:
             self._curvature_legacy = False
         elif curvature is None:
@@ -671,20 +672,24 @@ class MPCController:
                 self._curvature_legacy = False
         elif curvature >= cfg['curvature_enter']:
             self._curvature_legacy = True
-        if previous != self._curvature_legacy and self._soft_engine is not None:
-            # Do not compare straight-section energy with a different turn reference.
-            self._soft_engine.reset()
-        if cfg['mode'] != 'legacy' and not self._curvature_legacy:
+        if cfg['mode'] != 'legacy':
+            target_blend = float(self._curvature_legacy)
+            step = self.T/cfg['transition_time']
+            self._terminal_blend += float(np.clip(target_blend-self._terminal_blend, -step, step))
             if self._soft_engine is None:
                 self._soft_engine = SoftTerminalEngine(self)
-            output = self._soft_engine.update(current_state, desired_state, dt, reference_preview)
+            output = self._soft_engine.update(current_state, desired_state, dt, reference_preview,
+                                               legacy_blend=self._terminal_blend)
+            if self._terminal_blend >= 1.-1e-9:
+                self.terminal_diagnostics['mode'] = 'legacy'
         else:
+            self._terminal_blend = 0.
             output = self._update_legacy(current_state, desired_state, dt)
         self.terminal_diagnostics.update(
             requested_mode=cfg['mode'], curvature=curvature,
             curvature_switch=cfg['curvature_switch'],
             curvature_enter=cfg['curvature_enter'], curvature_exit=cfg['curvature_exit'],
-            curvature_fallback=self._curvature_legacy,
+            curvature_fallback=self._curvature_legacy, legacy_blend=self._terminal_blend,
             switch_reason='curvature' if self._curvature_legacy else 'selected_mode')
         return output
 
