@@ -358,6 +358,7 @@ class TrajectoryPlotWidget(SoftTerminalPanelMixin, QWidget):
         if self.is_drawing:
             return
         
+        self._corner_states.clear()
         self.is_drawing = True
         self.current_t = 0.0
         

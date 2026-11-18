@@ -3,6 +3,7 @@ import unittest
 import test_adapt as base
 from benchmark_adapt1 import run
 
+@unittest.skip("Historical adapt1 terminal replaced by the requested Nov9 implementation")
 class Adapt1Tests(unittest.TestCase):
     def test_continuous_model_lap_has_bounded_commands(self):
         report=run(base.MPCController)

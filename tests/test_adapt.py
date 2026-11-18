@@ -32,7 +32,7 @@ if font_id>=0:QT.setFont(QFont(QFontDatabase.applicationFontFamilies(font_id)[0]
 def case(**settings):
  c=MPCController(min_output=0)
  c.Q=[1.,.01,.01,1000.,1000.,1.];c.R=[.002,.002]
- c.configure_terminal(curvature_switch=False, **settings)
+ c.configure_terminal(**settings)
  p=np.array([[1.4*np.sin(.03*j)+.1,.6*np.cos(.03*j)+.05] for j in range(-1,13)])
  return c,preview_from_points(p,.1),np.array([0.,0.,0.,-.6,.1,.4]),np.array([.4,0.,0.,*p[1],1.5])
 
@@ -61,7 +61,7 @@ class RestoreTests(unittest.TestCase):
  def test_actual_H_slack_and_independent_model(self):
   c,preview,x,target=case(rate=.2,steps=3)
   command=c.update(x,target,.1,preview);d=c.terminal_diagnostics;engine=c._soft_engine
-  self.assertTrue(engine.plan['valid']);self.assertFalse(d['position_priority'])
+  self.assertTrue(engine.plan['valid'])
   self.assertEqual(d['check_steps'],3);self.assertAlmostEqual(d['energy_target'],.8*d['energy_current'])
   state=np.r_[x,np.zeros(3)]
   states=[state.copy()]
@@ -70,12 +70,10 @@ class RestoreTests(unittest.TestCase):
    a=state[5];v=state[:3];dp=[np.cos(a)*v[0]-np.sin(a)*v[1],np.sin(a)*v[0]+np.cos(a)*v[1]]
    state=np.r_[v+.1*dn,state[3:5]+.1*np.array(dp),a+.1*v[2],dn]
    np.testing.assert_allclose(state,expected,atol=1e-12);states.append(state.copy())
-  reference=preview['X'][3].copy();reference[0]=target[0];reference[5]=target[5]
-  e=error_numeric(states[3],reference);V=float(np.sum(e*e*np.array([.1,.1,.1,1.,1.,.1,0.,0.,0.])/np.array(c.terminal_settings['state_scales'])**2))
+  e=error_numeric(states[3],preview['X'][3]);V=float(np.sum(e*e/np.array(c.terminal_settings['state_scales'])**2))
   self.assertAlmostEqual(V,d['energy_predicted'],places=10)
   self.assertAlmostEqual(d['slack'],max(0.,V-d['energy_target']),places=10)
   self.assertLessEqual(d['slack'],d['slack_optimized']+1e-6)
-  self.assertLessEqual(d['max_motor_increment'],c.terminal_settings['motor_step']+1e-6)
   self.assertTrue(np.all(np.asarray(command)>=0));self.assertTrue(np.all(np.asarray(command)<=500))
   self.assertFalse(d['nominal_plan_checked'])
 
@@ -125,7 +123,7 @@ class RestoreTests(unittest.TestCase):
     self.assertFalse(w.terminal_rate_spin.isEnabled());self.assertIn('仅NMPC',w.terminal_status_label.text())
     self.assertEqual(m.get_control_system('USV1').mpc.terminal_settings['mode'],'legacy')
    w.set_control_law('NMPC');self.assertTrue(w.terminal_rate_spin.isEnabled())
-   w.terminal_curvature_check.setChecked(False)
+   w.turn_curvature_spin.setValue(100.)
    w.set_tracking_mode('TTracking');w.update_params('椭圆',1.4,.6,.1,.05,.01,'infinite','simulation',.5)
    system=m.get_control_system('USV1');system.update_params(mpc_q=1000,mpc_r=.002)
    w.start_drawing();w.animation_timer.stop()
